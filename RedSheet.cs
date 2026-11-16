@@ -153,20 +153,36 @@ sealed class RedSheet : Form
 
     static Bitmap Filter(Bitmap source, Color selected, float amount)
     {
-        float r = selected.R / 255f, g = selected.G / 255f, b = selected.B / 255f;
-        float norm = Math.Max(0.01f, r * r + g * g + b * b);
-        r /= norm; g /= norm; b /= norm;
-        float keep = 1f - amount;
-        var matrix = new ColorMatrix(new float[][] {
-            new float[] {keep + amount*r, amount*r, amount*r, 0, 0},
-            new float[] {amount*g, keep + amount*g, amount*g, 0, 0},
-            new float[] {amount*b, amount*b, keep + amount*b, 0, 0},
-            new float[] {0,0,0,1,0}, new float[] {0,0,0,0,1} });
+        int selectedMin = Math.Min(selected.R, Math.Min(selected.G, selected.B));
+        float selectedChroma = Math.Max(1, Math.Max(selected.R, Math.Max(selected.G, selected.B)) - selectedMin);
+        float targetR = (selected.R - selectedMin) / selectedChroma;
+        float targetG = (selected.G - selectedMin) / selectedChroma;
+        float targetB = (selected.B - selectedMin) / selectedChroma;
         var output = new Bitmap(source.Width, source.Height);
-        using (var attributes = new ImageAttributes())
-        using (var graphics = Graphics.FromImage(output)) {
-            attributes.SetColorMatrix(matrix);
-            graphics.DrawImage(source, new Rectangle(Point.Empty, source.Size), 0, 0, source.Width, source.Height, GraphicsUnit.Pixel, attributes);
+        var rect = new Rectangle(Point.Empty, source.Size);
+        BitmapData input = source.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+        BitmapData result = output.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+        try {
+            var row = new byte[source.Width * 4];
+            for (int y = 0; y < source.Height; y++) {
+                Marshal.Copy(IntPtr.Add(input.Scan0, y * input.Stride), row, 0, row.Length);
+                for (int x = 0; x < row.Length; x += 4) {
+                    int blue = row[x], green = row[x+1], red = row[x+2];
+                    int min = Math.Min(red, Math.Min(green, blue));
+                    int chroma = Math.Max(red, Math.Max(green, blue)) - min;
+                    // Compare hue independently of brightness. Preserve neutral text exactly.
+                    if (chroma < 3) continue;
+                    float distance = Math.Max(Math.Abs((red-min)/(float)chroma-targetR), Math.Max(Math.Abs((green-min)/(float)chroma-targetG), Math.Abs((blue-min)/(float)chroma-targetB)));
+                    float weight = amount * Math.Max(0f, Math.Min(1f, (0.45f-distance)/0.25f));
+                    row[x] = (byte)Math.Round(blue + (255-blue)*weight);
+                    row[x+1] = (byte)Math.Round(green + (255-green)*weight);
+                    row[x+2] = (byte)Math.Round(red + (255-red)*weight);
+                }
+                Marshal.Copy(row, 0, IntPtr.Add(result.Scan0, y * result.Stride), row.Length);
+            }
+        } finally {
+            source.UnlockBits(input);
+            output.UnlockBits(result);
         }
         return output;
     }
@@ -297,6 +313,20 @@ sealed class RedSheet : Form
                         }
                         using (var result = Filter(sample, Color.Red, 0.5f)) {
                             if (result.GetPixel(0,0).G < 120 || result.GetPixel(0,0).G > 135 || result.GetPixel(1,0).R > 5) throw new Exception("Gradual strength adjustment failed");
+                        }
+                    }
+                    using (var sample = new Bitmap(6, 1)) {
+                        sample.SetPixel(0,0,Color.FromArgb(170,35,30));
+                        sample.SetPixel(1,0,Color.FromArgb(255,200,200));
+                        sample.SetPixel(2,0,Color.FromArgb(100,100,100));
+                        sample.SetPixel(3,0,Color.Black);
+                        sample.SetPixel(4,0,Color.Blue);
+                        sample.SetPixel(5,0,Color.White);
+                        using (var result = Filter(sample, Color.FromArgb(200,30,25), 1f)) {
+                            for (int i = 0; i < 2; i++)
+                                if (result.GetPixel(i,0).ToArgb() != Color.White.ToArgb()) throw new Exception("Picked red left gray text");
+                            for (int i = 2; i < 6; i++)
+                                if (result.GetPixel(i,0).ToArgb() != sample.GetPixel(i,0).ToArgb()) throw new Exception("Unrelated text color changed");
                         }
                     }
                     Location = initial;
