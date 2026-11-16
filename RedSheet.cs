@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using System.Xml.Linq;
 using System.Drawing.Imaging;
+using System.Threading.Tasks;
 
 sealed class RedSheet : Form
 {
@@ -16,6 +17,10 @@ sealed class RedSheet : Form
     Color textColor = Color.Red;
     float strength = 1f;
     Bitmap filtered;
+    Point filteredOrigin;
+    bool captureInProgress, closing;
+    Action beforeFilterForTest;
+    int lastMove;
     readonly Timer refresh = new Timer { Interval = 120 };
     Point dragStart, windowStart;
     bool dragging;
@@ -81,11 +86,22 @@ sealed class RedSheet : Form
         MouseDoubleClick += delegate(object sender, MouseEventArgs e) { if (e.Button == MouseButtons.Left) PickColor(); };
         Activated += delegate { Invalidate(); };
         Deactivate += delegate { Invalidate(); };
-        refresh.Tick += delegate { CaptureFiltered(); };
+        refresh.Tick += delegate {
+            refresh.Interval = unchecked(Environment.TickCount - lastMove) < 150 ? 33 : 120;
+            CaptureFiltered();
+        };
         Shown += delegate { if (!testing && savedFilter) SetFilter(true); };
-        LocationChanged += delegate { if (autoFilter) CaptureFiltered(); };
-        SizeChanged += delegate { if (autoFilter) CaptureFiltered(); };
-        FormClosed += delegate { refresh.Dispose(); if (filtered != null) filtered.Dispose(); if (!testing) SaveSettings(); tray.Dispose(); };
+        LocationChanged += delegate { ScheduleMovementFrame(); };
+        SizeChanged += delegate { ScheduleMovementFrame(); };
+        FormClosed += delegate { closing = true; refresh.Dispose(); if (filtered != null) filtered.Dispose(); if (!testing) SaveSettings(); tray.Dispose(); };
+    }
+
+    void ScheduleMovementFrame()
+    {
+        if (!autoFilter) return;
+        lastMove = Environment.TickCount;
+        refresh.Interval = 33;
+        Invalidate();
     }
 
     void PickColor()
@@ -151,22 +167,21 @@ sealed class RedSheet : Form
         delay.Start();
     }
 
-    static Bitmap Filter(Bitmap source, Color selected, float amount)
+    static unsafe Bitmap Filter(Bitmap source, Color selected, float amount)
     {
         int selectedMin = Math.Min(selected.R, Math.Min(selected.G, selected.B));
         float selectedChroma = Math.Max(1, Math.Max(selected.R, Math.Max(selected.G, selected.B)) - selectedMin);
         float targetR = (selected.R - selectedMin) / selectedChroma;
         float targetG = (selected.G - selectedMin) / selectedChroma;
         float targetB = (selected.B - selectedMin) / selectedChroma;
-        var output = new Bitmap(source.Width, source.Height);
-        var rect = new Rectangle(Point.Empty, source.Size);
-        BitmapData input = source.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
-        BitmapData result = output.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+        var output = (Bitmap)source.Clone();
+        int width = source.Width, height = source.Height;
+        var rect = new Rectangle(0, 0, width, height);
+        BitmapData result = output.LockBits(rect, ImageLockMode.ReadWrite, PixelFormat.Format32bppArgb);
         try {
-            var row = new byte[source.Width * 4];
-            for (int y = 0; y < source.Height; y++) {
-                Marshal.Copy(IntPtr.Add(input.Scan0, y * input.Stride), row, 0, row.Length);
-                for (int x = 0; x < row.Length; x += 4) {
+            for (int y = 0; y < height; y++) {
+                byte* row = (byte*)result.Scan0 + y * result.Stride;
+                for (int x = 0; x < width * 4; x += 4) {
                     int blue = row[x], green = row[x+1], red = row[x+2];
                     int min = Math.Min(red, Math.Min(green, blue));
                     int chroma = Math.Max(red, Math.Max(green, blue)) - min;
@@ -178,10 +193,8 @@ sealed class RedSheet : Form
                     row[x+1] = (byte)Math.Round(green + (255-green)*weight);
                     row[x+2] = (byte)Math.Round(red + (255-red)*weight);
                 }
-                Marshal.Copy(row, 0, IntPtr.Add(result.Scan0, y * result.Stride), row.Length);
             }
         } finally {
-            source.UnlockBits(input);
             output.UnlockBits(result);
         }
         return output;
@@ -189,16 +202,39 @@ sealed class RedSheet : Form
 
     void CaptureFiltered()
     {
-        if (!autoFilter || picking || !Visible || ClientSize.Width <= 0 || ClientSize.Height <= 0) return;
+        if (!autoFilter || picking || closing || captureInProgress || !Visible || ClientSize.Width <= 0 || ClientSize.Height <= 0) return;
+        Bitmap capture = null;
         try {
-            using (var capture = new Bitmap(ClientSize.Width, ClientSize.Height)) {
-                using (var graphics = Graphics.FromImage(capture)) graphics.CopyFromScreen(PointToScreen(Point.Empty), Point.Empty, capture.Size);
-                Bitmap next = Filter(capture, textColor, strength);
-                Bitmap previous = filtered; filtered = next;
+            Point origin = PointToScreen(Point.Empty);
+            capture = new Bitmap(ClientSize.Width, ClientSize.Height);
+            using (var graphics = Graphics.FromImage(capture)) graphics.CopyFromScreen(origin, Point.Empty, capture.Size);
+            Color selected = textColor;
+            float amount = strength;
+            Bitmap ownedCapture = capture;
+            Action beforeFilter = beforeFilterForTest;
+            captureInProgress = true;
+            Task.Factory.StartNew(delegate {
+                using (ownedCapture) {
+                    if (beforeFilter != null) beforeFilter();
+                    return Filter(ownedCapture, selected, amount);
+                }
+            }).ContinueWith(task => {
+                captureInProgress = false;
+                if (task.IsFaulted) {
+                    Exception error = task.Exception.GetBaseException();
+                    if (!closing) { SetFilter(false); MessageBox.Show(this, error.Message, "色変換に失敗しました"); }
+                    return;
+                }
+                Bitmap next = task.Result;
+                if (closing || !autoFilter || picking || textColor != selected || strength != amount) { next.Dispose(); return; }
+                Bitmap previous = filtered;
+                filtered = next; filteredOrigin = origin;
                 if (previous != null) previous.Dispose();
-            }
-            Invalidate();
+                Invalidate();
+            }, TaskScheduler.FromCurrentSynchronizationContext());
+            capture = null;
         } catch (System.ComponentModel.Win32Exception) { SetFilter(false); }
+        finally { if (capture != null) capture.Dispose(); }
     }
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
@@ -249,9 +285,18 @@ sealed class RedSheet : Form
     protected override void OnPaint(PaintEventArgs e)
     {
         base.OnPaint(e);
-        if (autoFilter && filtered != null) e.Graphics.DrawImageUnscaled(filtered, Point.Empty);
+        if (autoFilter && filtered != null) {
+            Point origin = PointToScreen(Point.Empty);
+            e.Graphics.DrawImageUnscaled(filtered, filteredOrigin.X - origin.X, filteredOrigin.Y - origin.Y);
+        }
         using (var pen = new Pen(ContainsFocus ? Color.White : Color.FromArgb(100, 0, 0, 0), 2))
             e.Graphics.DrawRectangle(pen, 1, 1, ClientSize.Width - 3, ClientSize.Height - 3);
+    }
+
+    protected override void OnPaintBackground(PaintEventArgs e)
+    {
+        if (autoFilter) e.Graphics.Clear(Color.White);
+        else base.OnPaintBackground(e);
     }
 
     void LoadSettings()
@@ -288,6 +333,7 @@ sealed class RedSheet : Form
         Point initial = Location;
         int stage = 0;
         Form backdrop = null;
+        var filterGate = new System.Threading.ManualResetEvent(false);
         var timer = new Timer { Interval = 250 };
         timer.Tick += delegate {
             try {
@@ -337,16 +383,38 @@ sealed class RedSheet : Form
                     if (!autoFilter) throw new Exception("Capture exclusion unavailable");
                 }
                 if (stage == 4) {
-                    CaptureFiltered();
+                    refresh.Stop();
+                    if (captureInProgress) return;
                     if (filtered == null || filtered.GetPixel(100,100).G < 250 || filtered.GetPixel(40,40).R > 5) {
                         if (filtered != null) filtered.Save("self-test-capture.png");
                         throw new Exception("Live capture failed: red=" + (filtered == null ? "null" : filtered.GetPixel(100,100).ToString()) + " black=" + (filtered == null ? "null" : filtered.GetPixel(40,40).ToString()));
                     }
-                    File.WriteAllText("self-test-result.txt", "PASS: queued Up/Down moved actual window; Shift=1px; Ctrl=50px; opacity adjustment; color conversion; LIVE desktop capture through excluded overlay hides red and preserves black.\r\n");
+                    beforeFilterForTest = delegate { if (!filterGate.WaitOne(5000)) throw new Exception("Input responsiveness test timed out"); };
+                    CaptureFiltered();
+                    PostMessage(Handle, 0x100, new IntPtr((int)Keys.Down), IntPtr.Zero);
+                }
+                if (stage == 5) {
+                    if (!captureInProgress || Top != initial.Y + 10) throw new Exception("Input blocked by background filter");
+                    beforeFilterForTest = null;
+                    filterGate.Set();
+                    PostMessage(Handle, 0x100, new IntPtr((int)Keys.Up), IntPtr.Zero);
+                }
+                if (stage == 6) {
+                    refresh.Stop();
+                    if (captureInProgress) return;
+                    if (Location != initial) throw new Exception("Move back after background filtering failed");
+                    CaptureFiltered();
+                }
+                if (stage == 7) {
+                    refresh.Stop();
+                    if (captureInProgress) return;
+                    if (filteredOrigin != initial || filtered.GetPixel(100,100).G < 250 || filtered.GetPixel(40,40).R > 5) throw new Exception("Frame after movement is stale or incorrect");
+                    File.WriteAllText("self-test-result.txt", "PASS: queued Up/Down moved actual window; Shift=1px; Ctrl=50px; opacity and color conversion; LIVE capture hides red and preserves black; keyboard movement while filter worker is blocked; correct frame after movement.\r\n");
+                    filterGate.Dispose();
                     timer.Stop(); backdrop.Close(); Close();
                 }
                 stage++;
-            } catch (Exception e) { File.WriteAllText("self-test-result.txt", "FAIL: " + e); Environment.ExitCode = 1; timer.Stop(); if (backdrop != null) backdrop.Close(); Close(); }
+            } catch (Exception e) { filterGate.Set(); File.WriteAllText("self-test-result.txt", "FAIL: " + e); Environment.ExitCode = 1; timer.Stop(); if (backdrop != null) backdrop.Close(); Close(); }
         };
         timer.Start();
     }
