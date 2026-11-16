@@ -54,7 +54,7 @@ PDFをスクロールするときはPDFをクリックし、シートを動か�
 
 ## 紹介映像を撮影する
 
-[撮影用サンプルPDF](output/pdf/redsheet-demo.pdf)を用意しています。括弧内の答えだけが赤文字になっています。配布ZIPにも同梱しています。
+括弧内の答えだけを赤文字にした撮影用サンプルPDFは、[v0.1.0の配布ZIP](https://github.com/yosi-0730/redsheet/releases/tag/v0.1.0)から入手できます。生成したPDFや撮影素材はソースの管理対象から外しています。
 
 通常版は画面キャプチャから除外されます。録画にシートを映す場合は、通常版を終了して `RedSheet-Recording.exe` を起動してください。
 
@@ -99,6 +99,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ./build.ps1 -OutputName RedS
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File ./package.ps1 -Version 0.1.0
 ```
+
+ローカルに生成したサンプルPDFも同梱する場合は、`-IncludeDemo` を付けます。通常の配布ZIP作成には `output/` のファイルは不要です。
+
+## 開発の記録
+
+[開発の経緯と次回に生かすこと](docs/development-history.md)に、仕様の判断理由、検証方法、反省点を残しています。
 
 ## ライセンス
 

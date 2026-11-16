@@ -1,4 +1,4 @@
-param([ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version = '0.1.0')
+param([ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version = '0.1.0', [switch]$IncludeDemo)
 $ErrorActionPreference = 'Stop'
 $releaseName = "redsheet-v$Version-windows"
 $releaseDir = Join-Path $PSScriptRoot "dist/$releaseName"
@@ -15,8 +15,12 @@ foreach ($variant in @('RedSheet.exe', 'RedSheet-Recording.exe')) {
     Write-Output "$variant : $result"
 }
 Copy-Item -LiteralPath "$PSScriptRoot/README.md", "$PSScriptRoot/LICENSE" -Destination $releaseDir -Force
-Copy-Item -LiteralPath "$PSScriptRoot/output/pdf/redsheet-demo.pdf" -Destination $releaseDir -Force
-$files = @('RedSheet.exe', 'RedSheet-Recording.exe', 'README.md', 'LICENSE', 'redsheet-demo.pdf') | ForEach-Object { Join-Path $releaseDir $_ }
+$fileNames = @('RedSheet.exe', 'RedSheet-Recording.exe', 'README.md', 'LICENSE')
+if ($IncludeDemo) {
+    Copy-Item -LiteralPath "$PSScriptRoot/output/pdf/redsheet-demo.pdf" -Destination $releaseDir -Force
+    $fileNames += 'redsheet-demo.pdf'
+}
+$files = $fileNames | ForEach-Object { Join-Path $releaseDir $_ }
 $zipPath = Join-Path $PSScriptRoot "dist/$releaseName.zip"
 Compress-Archive -LiteralPath $files -DestinationPath $zipPath -Force
 $hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()

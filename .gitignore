@@ -4,4 +4,5 @@ self-test-result.txt
 self-test-capture.png
 dist/
 tmp/
+/output/
 __pycache__/
