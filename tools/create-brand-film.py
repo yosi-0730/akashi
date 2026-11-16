@@ -23,7 +23,7 @@ for name, path in {
 
 spec = json.loads((ROOT / "tools" / "brand-film.json").read_text(encoding="utf-8-sig"))
 width, height = spec.get("size", [1280, 720])
-output = ROOT / "output" / "pdf" / "redsheet-brand-film.pdf"
+output = ROOT / "output" / "pdf" / "akashi-brand-film.pdf"
 output.parent.mkdir(parents=True, exist_ok=True)
 preview = ROOT / "tmp" / "pdfs" / "brand-film"
 preview.mkdir(parents=True, exist_ok=True)

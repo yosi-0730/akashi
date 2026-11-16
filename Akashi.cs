@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Drawing;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -6,8 +6,13 @@ using System.Windows.Forms;
 using System.Xml.Linq;
 using System.Drawing.Imaging;
 using System.Threading.Tasks;
+using System.Reflection;
+[assembly: AssemblyTitle("akashi")]
+[assembly: AssemblyProduct("akashi")]
+[assembly: AssemblyDescription("赤シートをパソコンでも。")]
+[assembly: AssemblyVersion("0.1.1.0")]
 
-sealed class RedSheet : Form
+sealed class Akashi : Form
 {
 #if RECORDING_BUILD
     static readonly bool RecordingBuild = true;
@@ -44,10 +49,10 @@ sealed class RedSheet : Form
     [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
     [DllImport("user32.dll")] static extern bool PostMessage(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam);
 
-    public RedSheet(bool selfTest)
+    public Akashi(bool selfTest)
     {
         testing = selfTest;
-        Text = "赤シート（矢印で移動・Cで色選択）";
+        Text = "akashi（矢印で移動・Cで色選択）";
         FormBorderStyle = FormBorderStyle.None;
         StartPosition = FormStartPosition.Manual;
         Bounds = new Rectangle(200, 200, 640, 240);
@@ -59,7 +64,7 @@ sealed class RedSheet : Form
         if (!testing) LoadSettings();
         var menu = new ContextMenuStrip();
         if (RecordingBuild) {
-            Text = "赤シート 撮影用（Ctrl+Shift+Rで撮影切替）";
+            Text = "akashi 撮影用（Ctrl+Shift+Rで撮影切替）";
             var recordingItem = new ToolStripMenuItem("撮影モード（Ctrl+Shift+R）");
             recordingItem.Click += delegate { ToggleRecording(); };
             menu.Items.Add(recordingItem);
@@ -86,7 +91,7 @@ sealed class RedSheet : Form
             int value = percent;
             var item = new ToolStripMenuItem(percent + "%");
             item.Click += delegate {
-                if (recordingMode || recordingPending) { MessageBox.Show(this, "撮影モードを解除してから変更してください。", "赤シート 撮影用"); return; }
+                if (recordingMode || recordingPending) { MessageBox.Show(this, "撮影モードを解除してから変更してください。", "akashi 撮影用"); return; }
                 SetFilter(false); Opacity = value / 100.0; Invalidate();
             };
             opacityMenu.DropDownItems.Add(item);
@@ -97,11 +102,11 @@ sealed class RedSheet : Form
         };
         menu.Items.Add(opacityMenu);
         menu.Items.Add("操作方法", null, delegate {
-            MessageBox.Show(this, "シートをクリックして選択後、矢印キーで移動します。\n\n矢印：10px移動（長押し可）\nShift + 矢印：1px移動\nCtrl + 矢印：50px移動\nF：自動モードの切替\nC / ダブルクリック：隠す文字色を選択\n右クリック→画面から隠す文字色を拾う：3秒以内に文字の中央へマウスを移動\n+ / -：自動モードの効き具合を調整\n通常モードでは不透明度を調整\nドラッグ：移動 ／ 端をドラッグ：サイズ変更\nAlt + F4：終了\n\nPDFを操作するときはPDFをクリックしてください。\nタスクトレイのアイコンをダブルクリックすると、シートを選択できます。", "赤シートの使い方");
+            MessageBox.Show(this, "シートをクリックして選択後、矢印キーで移動します。\n\n矢印：10px移動（長押し可）\nShift + 矢印：1px移動\nCtrl + 矢印：50px移動\nF：自動モードの切替\nC / ダブルクリック：隠す文字色を選択\n右クリック→画面から隠す文字色を拾う：3秒以内に文字の中央へマウスを移動\n+ / -：自動モードの効き具合を調整\n通常モードでは不透明度を調整\nドラッグ：移動 ／ 端をドラッグ：サイズ変更\nAlt + F4：終了\n\nPDFを操作するときはPDFをクリックしてください。\nタスクトレイのアイコンをダブルクリックすると、シートを選択できます。", "akashiの使い方");
         });
         menu.Items.Add("終了", null, delegate { Close(); });
         ContextMenuStrip = menu;
-        tray = new NotifyIcon { Icon = SystemIcons.Application, Text = "赤シート：ダブルクリックで選択", ContextMenuStrip = menu, Visible = !testing };
+        tray = new NotifyIcon { Icon = SystemIcons.Application, Text = "akashi：ダブルクリックで選択", ContextMenuStrip = menu, Visible = !testing };
         tray.DoubleClick += delegate { Show(); Activate(); };
         MouseDown += delegate(object sender, MouseEventArgs e) {
             if (e.Button == MouseButtons.Left && e.Clicks == 1) {
@@ -152,7 +157,7 @@ sealed class RedSheet : Form
             if (dialog.ShowDialog(this) == DialogResult.OK) {
                 if (autoFilter) {
                     if (IsTextColor(dialog.Color)) textColor = dialog.Color;
-                    else MessageBox.Show(this, "隠す文字色には赤などの色を選んでください。黒・白・灰色は適しません。", "赤シート");
+                    else MessageBox.Show(this, "隠す文字色には赤などの色を選んでください。黒・白・灰色は適しません。", "akashi");
                 }
                 else BackColor = dialog.Color;
             }
@@ -169,10 +174,10 @@ sealed class RedSheet : Form
     void ToggleRecording()
     {
         if (recordingMode) {
-            if (!EnableCaptureExclusion()) { MessageBox.Show(this, "録画からの除外に戻せませんでした。アプリを終了して起動し直してください。", "赤シート 撮影用"); return; }
+            if (!EnableCaptureExclusion()) { MessageBox.Show(this, "録画からの除外に戻せませんでした。アプリを終了して起動し直してください。", "akashi 撮影用"); return; }
             recordingMode = false;
             recordingSource.Dispose(); recordingSource = null;
-            tray.Text = "赤シート 撮影用：通常モード";
+            tray.Text = "akashi 撮影用：通常モード";
             CaptureFiltered();
         } else if (recordingPending) {
             recordingPending = false;
@@ -193,9 +198,9 @@ sealed class RedSheet : Form
 
     void SetFilter(bool enabled)
     {
-        if (recordingMode || recordingPending) { MessageBox.Show(this, "撮影モードを解除してから切り替えてください。", "赤シート 撮影用"); return; }
+        if (recordingMode || recordingPending) { MessageBox.Show(this, "撮影モードを解除してから切り替えてください。", "akashi 撮影用"); return; }
         if (enabled && !EnableCaptureExclusion()) {
-            MessageBox.Show(this, "自動モードにはWindows 10 バージョン2004以降の画面キャプチャ除外機能が必要です。", "赤シート");
+            MessageBox.Show(this, "自動モードにはWindows 10 バージョン2004以降の画面キャプチャ除外機能が必要です。", "akashi");
             return;
         }
         autoFilter = enabled;
@@ -207,8 +212,8 @@ sealed class RedSheet : Form
 
     void PickScreenColor()
     {
-        if (recordingMode || recordingPending) { MessageBox.Show(this, "画面から色を拾うときは、Ctrl+Shift+Rで撮影モードを解除してください。", "赤シート 撮影用"); return; }
-        if (!EnableCaptureExclusion()) { MessageBox.Show(this, "画面からの色取得に対応していないWindowsです。Cキーの色選択を利用してください。", "赤シート"); return; }
+        if (recordingMode || recordingPending) { MessageBox.Show(this, "画面から色を拾うときは、Ctrl+Shift+Rで撮影モードを解除してください。", "akashi 撮影用"); return; }
+        if (!EnableCaptureExclusion()) { MessageBox.Show(this, "画面からの色取得に対応していないWindowsです。Cキーの色選択を利用してください。", "akashi"); return; }
         picking = true;
         tray.Text = "3秒以内に隠したい文字の中央へマウスを移動";
         var delay = new Timer { Interval = 3000 };
@@ -219,11 +224,11 @@ sealed class RedSheet : Form
                     using (var graphics = Graphics.FromImage(pixel)) graphics.CopyFromScreen(Cursor.Position, Point.Empty, new Size(1, 1));
                     Color selected = pixel.GetPixel(0, 0);
                     if (!IsTextColor(selected))
-                        MessageBox.Show(this, "色のある文字の中央を選んでください。黒・白・灰色は隠す色に適しません。", "赤シート");
+                        MessageBox.Show(this, "色のある文字の中央を選んでください。黒・白・灰色は隠す色に適しません。", "akashi");
                     else { textColor = selected; strength = 1f; SetFilter(true); }
                 }
             } catch (System.ComponentModel.Win32Exception e) { MessageBox.Show(this, e.Message, "画面の色を取得できませんでした"); }
-            finally { picking = false; tray.Text = "赤シート：ダブルクリックで選択"; Activate(); }
+            finally { picking = false; tray.Text = "akashi：ダブルクリックで選択"; Activate(); }
         };
         delay.Start();
     }
@@ -325,10 +330,10 @@ sealed class RedSheet : Form
                     recordingPending = false;
                     if (!SetWindowDisplayAffinity(Handle, 0)) {
                         ownedCapture.Dispose(); next.Dispose();
-                        MessageBox.Show(this, "録画に映る状態へ切り替えられませんでした。", "赤シート 撮影用"); return;
+                        MessageBox.Show(this, "録画に映る状態へ切り替えられませんでした。", "akashi 撮影用"); return;
                     }
                     recordingSource = ownedCapture; recordingOrigin = origin; recordingMode = true;
-                    tray.Text = "赤シート 撮影中：画面は固定・Ctrl+Shift+Rで解除";
+                    tray.Text = "akashi 撮影中：画面は固定・Ctrl+Shift+Rで解除";
                 }
                 Bitmap previous = filtered;
                 filtered = next; filteredOrigin = origin;
@@ -443,7 +448,7 @@ sealed class RedSheet : Form
             new XElement("sheet", new XAttribute("color", BackColor.ToArgb()), new XAttribute("textColor", textColor.ToArgb()), new XAttribute("redSheetVisible", redSheetVisible), new XAttribute("sheetTint", sheetTint.ToArgb()), new XAttribute("autoFilter", autoFilter), new XAttribute("strength", strength), new XAttribute("opacity", Opacity), new XAttribute("x", Left), new XAttribute("y", Top), new XAttribute("width", Width), new XAttribute("height", Height)).Save(settingsPath);
         } catch (Exception e) {
             if (!(e is IOException || e is UnauthorizedAccessException)) throw;
-            MessageBox.Show("設定を保存できませんでした。\n" + e.Message, "赤シート");
+            MessageBox.Show("設定を保存できませんでした。\n" + e.Message, "akashi");
         }
     }
 
@@ -604,7 +609,7 @@ sealed class RedSheet : Form
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         bool test = Array.IndexOf(args, "--self-test") >= 0;
-        using (var sheet = new RedSheet(test)) {
+        using (var sheet = new Akashi(test)) {
             if (test) sheet.Shown += delegate { sheet.RunSelfTest(); };
             Application.Run(sheet);
         }

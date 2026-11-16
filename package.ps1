@@ -1,11 +1,11 @@
-param([ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version = '0.1.0', [switch]$IncludeDemo)
+﻿param([ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version = '0.1.1', [switch]$IncludeDemo)
 $ErrorActionPreference = 'Stop'
-$releaseName = "redsheet-v$Version-windows"
+$releaseName = "akashi-v$Version-windows"
 $releaseDir = Join-Path $PSScriptRoot "dist/$releaseName"
 New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
-foreach ($variant in @('RedSheet.exe', 'RedSheet-Recording.exe')) {
+foreach ($variant in @('akashi.exe', 'akashi-recording.exe')) {
     $outputPath = Join-Path $releaseDir $variant
-    & "$PSScriptRoot/build.ps1" -OutputName $outputPath -Recording:($variant -eq 'RedSheet-Recording.exe')
+    & "$PSScriptRoot/build.ps1" -OutputName $outputPath -Recording:($variant -eq 'akashi-recording.exe')
     $resultPath = Join-Path $releaseDir 'self-test-result.txt'
     if (Test-Path -LiteralPath $resultPath) { Remove-Item -LiteralPath $resultPath }
     $testProcess = Start-Process -FilePath $outputPath -ArgumentList '--self-test' -WorkingDirectory $releaseDir -WindowStyle Hidden -PassThru -Wait
@@ -15,10 +15,10 @@ foreach ($variant in @('RedSheet.exe', 'RedSheet-Recording.exe')) {
     Write-Output "$variant : $result"
 }
 Copy-Item -LiteralPath "$PSScriptRoot/README.md", "$PSScriptRoot/LICENSE" -Destination $releaseDir -Force
-$fileNames = @('RedSheet.exe', 'RedSheet-Recording.exe', 'README.md', 'LICENSE')
+$fileNames = @('akashi.exe', 'akashi-recording.exe', 'README.md', 'LICENSE')
 if ($IncludeDemo) {
-    Copy-Item -LiteralPath "$PSScriptRoot/output/pdf/redsheet-demo.pdf" -Destination $releaseDir -Force
-    $fileNames += 'redsheet-demo.pdf'
+    Copy-Item -LiteralPath "$PSScriptRoot/output/pdf/akashi-demo.pdf" -Destination $releaseDir -Force
+    $fileNames += 'akashi-demo.pdf'
 }
 $files = $fileNames | ForEach-Object { Join-Path $releaseDir $_ }
 $zipPath = Join-Path $PSScriptRoot "dist/$releaseName.zip"

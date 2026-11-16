@@ -1,4 +1,6 @@
-﻿# RedSheet
+# akashi
+
+**赤シートをパソコンでも。**
 
 PDFや問題集の上に重ねて使う、Windows用の赤シートです。矢印キーで動かし、今取り組んでいる問題の位置を示しながら、赤文字の答えを隠せます。
 
@@ -11,14 +13,14 @@ PDFや問題集の上に重ねて使う、Windows用の赤シートです。矢�
 
 ## ダウンロードと起動
 
-[最新版のダウンロード](https://github.com/yosi-0730/redsheet/releases/latest)からZIPを保存して展開し、`RedSheet.exe` を起動してください。インストールは不要です。
+[最新版のダウンロード](https://github.com/yosi-0730/akashi/releases/latest)からZIPを保存して展開し、`akashi.exe` を起動してください。インストールは不要です。
 
 動作環境はWindows 10 バージョン2004以降、またはWindows 11と、.NET Framework 4.7.2以降です。
 
 | ファイル | 用途 |
 |---|---|
-| `RedSheet.exe` | 通常の学習用 |
-| `RedSheet-Recording.exe` | 録画にシートを映すための撮影用 |
+| `akashi.exe` | 通常の学習用 |
+| `akashi-recording.exe` | 録画にシートを映すための撮影用 |
 
 ## 答えを隠して問題を読む
 
@@ -54,9 +56,9 @@ PDFをスクロールするときはPDFをクリックし、シートを動か�
 
 ## 紹介映像を撮影する
 
-括弧内の答えだけを赤文字にした撮影用サンプルPDFは、[v0.1.0の配布ZIP](https://github.com/yosi-0730/redsheet/releases/tag/v0.1.0)から入手できます。生成したPDFや撮影素材はソースの管理対象から外しています。
+括弧内の答えだけを赤文字にした撮影用サンプルPDFは、[v0.1.0の配布ZIP](https://github.com/yosi-0730/akashi/releases/tag/v0.1.0)から入手できます。旧版の実行ファイル名は `RedSheet.exe` です。生成したPDFや撮影素材はソースの管理対象から外しています。
 
-通常版は画面キャプチャから除外されます。録画にシートを映す場合は、通常版を終了して `RedSheet-Recording.exe` を起動してください。
+通常版は画面キャプチャから除外されます。録画にシートを映す場合は、通常版を終了して `akashi-recording.exe` を起動してください。
 
 1. PDFの撮影したいページを表示し、シートの位置や色を合わせます。
 2. シートを選択して **Ctrl + Shift + R** を押します。
@@ -78,6 +80,8 @@ PDFをスクロールするときはPDFをクリックし、シートを動か�
 
 色・位置・サイズは終了時に次のファイルへ保存します。撮影状態は次回起動へ持ち越しません。
 
+旧版の設定を引き継ぐため、保存先のフォルダー名は継続しています。
+
 - 通常版：`%LOCALAPPDATA%/KeyboardRedSheet/settings.xml`
 - 撮影用：`%LOCALAPPDATA%/KeyboardRedSheetRecording/settings.xml`
 
@@ -87,7 +91,7 @@ Windowsの.NET Framework付属のC#コンパイラを使います。追加パッ
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File ./build.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File ./build.ps1 -OutputName RedSheet-Recording.exe -Recording
+powershell -NoProfile -ExecutionPolicy Bypass -File ./build.ps1 -OutputName akashi-recording.exe -Recording
 ```
 
 実行ファイルに `--self-test` を付けると、テスト用のウィンドウを表示して移動・色変換・キャッシュを検証します。撮影用では録画への表示切替と解除後の復帰も確認します。
@@ -97,7 +101,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ./build.ps1 -OutputName RedS
 配布ZIPは次のコマンドで生成します。両方のアプリをビルド・検証してから、実行ファイルとREADME、ライセンスだけをまとめます。
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File ./package.ps1 -Version 0.1.0
+powershell -NoProfile -ExecutionPolicy Bypass -File ./package.ps1 -Version 0.1.1
 ```
 
 ローカルに生成したサンプルPDFも同梱する場合は、`-IncludeDemo` を付けます。通常の配布ZIP作成には `output/` のファイルは不要です。
