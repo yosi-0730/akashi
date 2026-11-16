@@ -1,0 +1,68 @@
+{
+  "title": "redsheet. | Brand film artboards",
+  "size": [1280, 720],
+  "pages": [
+    {
+      "elements": [
+        {"kind":"text","x":88,"y":67,"text":"redsheet.","font":"Latin","size":19},
+        {"kind":"text","x":1192,"y":65,"align":"right","text":"FOR WINDOWS","font":"Latin","size":12},
+        {"kind":"rule","x":88,"y":88,"x2":1192,"color":"#e4e4e4","weight":0.6},
+        {"kind":"text","x":249,"y":380,"text":"赤シートは、紙だけのもの","size":46},
+        {"kind":"text","x":801,"y":380,"text":"じゃない。","size":46,"color":"#d7262e"},
+        {"kind":"text","x":88,"y":654,"text":"01","font":"Latin","size":12}
+      ]
+    },
+    {
+      "elements": [
+        {"kind":"text","x":88,"y":67,"text":"redsheet.","font":"Latin","size":19},
+        {"kind":"text","x":1192,"y":65,"align":"right","text":"FOR WINDOWS","font":"Latin","size":12},
+        {"kind":"rule","x":88,"y":88,"x2":1192,"color":"#e4e4e4","weight":0.6},
+        {"kind":"text","x":148,"y":302,"text":"あの赤シートを、","size":62},
+        {"kind":"text","x":140,"y":443,"text":"Windowsにも。","font":"JPBold","size":104,"color":"#d7262e"},
+        {"kind":"text","x":88,"y":654,"text":"02","font":"Latin","size":12}
+      ]
+    },
+    {
+      "elements": [
+        {"kind":"text","x":88,"y":67,"text":"redsheet.","font":"Latin","size":19},
+        {"kind":"text","x":1192,"y":65,"align":"right","text":"FOR WINDOWS","font":"Latin","size":12},
+        {"kind":"rule","x":88,"y":88,"x2":1192,"color":"#e4e4e4","weight":0.6},
+        {"kind":"text","x":288,"y":262,"text":"紙で慣れた","size":48},
+        {"kind":"text","x":688,"y":262,"text":"手つき。","size":48,"color":"#d7262e"},
+        {"kind":"text","x":288,"y":374,"text":"いつもの","size":48},
+        {"kind":"text","x":688,"y":374,"text":"画面。","size":48,"color":"#d7262e"},
+        {"kind":"text","x":288,"y":486,"text":"同じ","size":48},
+        {"kind":"text","x":688,"y":486,"text":"赤。","size":48,"color":"#d7262e"},
+        {"kind":"text","x":88,"y":654,"text":"03","font":"Latin","size":12}
+      ]
+    },
+    {
+      "elements": [
+        {"kind":"text","x":640,"y":376,"align":"center","text":"redsheet.","font":"Latin","size":170,"color":"#d7262e"},
+        {"kind":"text","x":640,"y":452,"align":"center","text":"紙で覚えたやり方を、いつものWindowsで。","size":24},
+        {"kind":"text","x":88,"y":654,"text":"04","font":"Latin","size":12},
+        {"kind":"text","x":1192,"y":654,"align":"right","text":"FOR WINDOWS","font":"Latin","size":12}
+      ]
+    },
+    {
+      "elements": [
+        {"kind":"text","x":136,"y":361,"text":"redsheet.","font":"Latin","size":116,"color":"#d7262e"},
+        {"kind":"text","x":142,"y":419,"text":"あの赤シートを、Windowsにも。","size":23},
+        {"kind":"qr","x":942,"y":243,"size":182,"url":"https://github.com/yosi-0730/redsheet/releases/latest","color":"#d7262e"},
+        {"kind":"text","x":1033,"y":454,"align":"center","text":"DOWNLOAD","font":"Latin","size":12},
+        {"kind":"text","x":142,"y":582,"text":"Windows / MIT License","font":"Latin","size":15},
+        {"kind":"text","x":142,"y":616,"text":"github.com/yosi-0730/redsheet","font":"Latin","size":19},
+        {"kind":"text","x":1192,"y":654,"align":"right","text":"05","font":"Latin","size":12}
+      ]
+    },
+    {
+      "elements": [
+        {"kind":"text","x":88,"y":67,"text":"ALTERNATE WORDMARK","font":"Latin","size":12},
+        {"kind":"text","x":640,"y":376,"align":"center","text":"zurashi","font":"Latin","size":174,"color":"#d7262e"},
+        {"kind":"text","x":640,"y":452,"align":"center","text":"あの赤シートを、Windowsにも。","size":24},
+        {"kind":"text","x":88,"y":654,"text":"06","font":"Latin","size":12},
+        {"kind":"text","x":1192,"y":654,"align":"right","text":"NAME STUDY","font":"Latin","size":12}
+      ]
+    }
+  ]
+}
