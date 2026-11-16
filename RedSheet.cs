@@ -9,7 +9,15 @@ using System.Threading.Tasks;
 
 sealed class RedSheet : Form
 {
-    readonly string settingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "KeyboardRedSheet", "settings.xml");
+#if RECORDING_BUILD
+    static readonly bool RecordingBuild = true;
+#else
+    static readonly bool RecordingBuild = false;
+#endif
+    readonly string settingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), RecordingBuild ? "KeyboardRedSheetRecording" : "KeyboardRedSheet", "settings.xml");
+    bool recordingMode, recordingPending;
+    Bitmap recordingSource;
+    Point recordingOrigin;
     readonly NotifyIcon tray;
     bool testing;
     bool autoFilter;
@@ -50,6 +58,13 @@ sealed class RedSheet : Form
         DoubleBuffered = true;
         if (!testing) LoadSettings();
         var menu = new ContextMenuStrip();
+        if (RecordingBuild) {
+            Text = "赤シート 撮影用（Ctrl+Shift+Rで撮影切替）";
+            var recordingItem = new ToolStripMenuItem("撮影モード（Ctrl+Shift+R）");
+            recordingItem.Click += delegate { ToggleRecording(); };
+            menu.Items.Add(recordingItem);
+            menu.Opening += delegate { recordingItem.Checked = recordingMode || recordingPending; };
+        }
         menu.Items.Add("色を選ぶ（C / ダブルクリック）", null, delegate { PickColor(); });
         menu.Items.Add("画面から隠す文字色を拾う（3秒後）", null, delegate { PickScreenColor(); });
         var autoItem = new ToolStripMenuItem("文字を自動で隠す（F）");
@@ -70,7 +85,10 @@ sealed class RedSheet : Form
         {
             int value = percent;
             var item = new ToolStripMenuItem(percent + "%");
-            item.Click += delegate { SetFilter(false); Opacity = value / 100.0; Invalidate(); };
+            item.Click += delegate {
+                if (recordingMode || recordingPending) { MessageBox.Show(this, "撮影モードを解除してから変更してください。", "赤シート 撮影用"); return; }
+                SetFilter(false); Opacity = value / 100.0; Invalidate();
+            };
             opacityMenu.DropDownItems.Add(item);
         }
         opacityMenu.DropDownOpening += delegate {
@@ -108,7 +126,7 @@ sealed class RedSheet : Form
         Shown += delegate { if (!testing && savedFilter) SetFilter(true); };
         LocationChanged += delegate { ScheduleMovementFrame(); };
         SizeChanged += delegate { ScheduleMovementFrame(); };
-        FormClosed += delegate { closing = true; refresh.Dispose(); if (filtered != null) filtered.Dispose(); if (!testing) SaveSettings(); tray.Dispose(); };
+        FormClosed += delegate { closing = true; refresh.Dispose(); if (filtered != null) filtered.Dispose(); if (recordingSource != null) recordingSource.Dispose(); if (!testing) SaveSettings(); tray.Dispose(); };
     }
 
     void ScheduleMovementFrame()
@@ -148,6 +166,24 @@ sealed class RedSheet : Form
         return SetWindowDisplayAffinity(Handle, 0x11) && GetWindowDisplayAffinity(Handle, out affinity) && affinity == 0x11;
     }
 
+    void ToggleRecording()
+    {
+        if (recordingMode) {
+            if (!EnableCaptureExclusion()) { MessageBox.Show(this, "録画からの除外に戻せませんでした。アプリを終了して起動し直してください。", "赤シート 撮影用"); return; }
+            recordingMode = false;
+            recordingSource.Dispose(); recordingSource = null;
+            tray.Text = "赤シート 撮影用：通常モード";
+            CaptureFiltered();
+        } else if (recordingPending) {
+            recordingPending = false;
+        } else {
+            if (!autoFilter) SetFilter(true);
+            if (!autoFilter || !EnableCaptureExclusion()) return;
+            recordingPending = true;
+            CaptureFiltered();
+        }
+    }
+
     static bool IsTextColor(Color color)
     {
         int max = Math.Max(color.R, Math.Max(color.G, color.B));
@@ -157,6 +193,7 @@ sealed class RedSheet : Form
 
     void SetFilter(bool enabled)
     {
+        if (recordingMode || recordingPending) { MessageBox.Show(this, "撮影モードを解除してから切り替えてください。", "赤シート 撮影用"); return; }
         if (enabled && !EnableCaptureExclusion()) {
             MessageBox.Show(this, "自動モードにはWindows 10 バージョン2004以降の画面キャプチャ除外機能が必要です。", "赤シート");
             return;
@@ -170,6 +207,7 @@ sealed class RedSheet : Form
 
     void PickScreenColor()
     {
+        if (recordingMode || recordingPending) { MessageBox.Show(this, "画面から色を拾うときは、Ctrl+Shift+Rで撮影モードを解除してください。", "赤シート 撮影用"); return; }
         if (!EnableCaptureExclusion()) { MessageBox.Show(this, "画面からの色取得に対応していないWindowsです。Cキーの色選択を利用してください。", "赤シート"); return; }
         picking = true;
         tray.Text = "3秒以内に隠したい文字の中央へマウスを移動";
@@ -237,20 +275,27 @@ sealed class RedSheet : Form
         try {
             var view = new Rectangle(PointToScreen(Point.Empty), ClientSize);
             int now = Environment.TickCount;
-            if (unchecked(now - lastMove) < 150 && CanReuseCache(view, now)) return;
+            bool preparing = recordingPending;
+            bool frozen = recordingMode;
+            if (frozen && filteredColor == textColor && filteredStrength == strength && filteredTint == CurrentTint) return;
+            if (!preparing && !frozen && unchecked(now - lastMove) < 150 && CanReuseCache(view, now)) return;
             var area = view;
             area.Inflate(256, 384);
             area = Rectangle.Intersect(area, SystemInformation.VirtualScreen);
+            if (preparing) area = SystemInformation.VirtualScreen;
             if (area.IsEmpty) return;
-            Point origin = area.Location;
-            capture = new Bitmap(area.Width, area.Height);
-            using (var graphics = Graphics.FromImage(capture)) {
+            Point origin = frozen ? recordingOrigin : area.Location;
+            if (frozen) capture = (Bitmap)recordingSource.Clone();
+            else {
+              capture = new Bitmap(area.Width, area.Height);
+              using (var graphics = Graphics.FromImage(capture)) {
                 graphics.Clear(Color.White);
                 foreach (Screen screen in Screen.AllScreens) {
                     Rectangle part = Rectangle.Intersect(area, screen.Bounds);
                     if (part.Width > 0 && part.Height > 0)
                         graphics.CopyFromScreen(part.Location, new Point(part.X - origin.X, part.Y - origin.Y), part.Size);
                 }
+              }
             }
             Color selected = textColor;
             float amount = strength;
@@ -259,19 +304,32 @@ sealed class RedSheet : Form
             Action beforeFilter = beforeFilterForTest;
             captureInProgress = true;
             Task.Factory.StartNew(delegate {
-                using (ownedCapture) {
+                try {
                     if (beforeFilter != null) beforeFilter();
                     return Filter(ownedCapture, selected, amount, tint);
-                }
+                } finally { if (!preparing) ownedCapture.Dispose(); }
             }).ContinueWith(task => {
                 captureInProgress = false;
                 if (task.IsFaulted) {
+                    if (preparing) ownedCapture.Dispose();
+                    recordingPending = false;
                     Exception error = task.Exception.GetBaseException();
                     if (!closing) { SetFilter(false); MessageBox.Show(this, error.Message, "色変換に失敗しました"); }
                     return;
                 }
                 Bitmap next = task.Result;
-                if (closing || !autoFilter || picking || textColor != selected || strength != amount || CurrentTint != tint) { next.Dispose(); return; }
+                if (closing || !autoFilter || picking || textColor != selected || strength != amount || CurrentTint != tint || (frozen && !recordingMode) || (preparing && !recordingPending)) {
+                    next.Dispose(); if (preparing) ownedCapture.Dispose(); return;
+                }
+                if (preparing) {
+                    recordingPending = false;
+                    if (!SetWindowDisplayAffinity(Handle, 0)) {
+                        ownedCapture.Dispose(); next.Dispose();
+                        MessageBox.Show(this, "録画に映る状態へ切り替えられませんでした。", "赤シート 撮影用"); return;
+                    }
+                    recordingSource = ownedCapture; recordingOrigin = origin; recordingMode = true;
+                    tray.Text = "赤シート 撮影中：画面は固定・Ctrl+Shift+Rで解除";
+                }
                 Bitmap previous = filtered;
                 filtered = next; filteredOrigin = origin;
                 filteredColor = selected; filteredStrength = amount; capturedAt = now;
@@ -297,6 +355,7 @@ sealed class RedSheet : Form
     {
         Keys key = keyData & Keys.KeyCode;
         Keys modifiers = keyData & Keys.Modifiers;
+        if (RecordingBuild && keyData == (Keys.Control | Keys.Shift | Keys.R)) { ToggleRecording(); return true; }
         if (modifiers == Keys.None || modifiers == Keys.Shift || modifiers == Keys.Control)
         {
             int step = modifiers == Keys.Shift ? 1 : modifiers == Keys.Control ? 50 : 10;
@@ -329,6 +388,7 @@ sealed class RedSheet : Form
 
     protected override void WndProc(ref Message m)
     {
+        if (testing && m.Msg == 0x8001) { ProcessCmdKey(ref m, (Keys)m.WParam.ToInt32()); return; }
         base.WndProc(ref m);
         if (m.Msg != 0x84 || (int)m.Result != 1) return;
         long position = m.LParam.ToInt64();
@@ -398,10 +458,10 @@ sealed class RedSheet : Form
         var timer = new Timer { Interval = 250 };
         timer.Tick += delegate {
             try {
-                if (stage == 0) PostMessage(Handle, 0x100, new IntPtr((int)Keys.Down), IntPtr.Zero);
+                if (stage == 0) PostMessage(Handle, 0x8001, new IntPtr((int)Keys.Down), IntPtr.Zero);
                 if (stage == 1) {
                     if (Top != initial.Y + 10 || Left != initial.X) throw new Exception("Down did not move the real window by 10px");
-                    PostMessage(Handle, 0x100, new IntPtr((int)Keys.Up), IntPtr.Zero);
+                    PostMessage(Handle, 0x8001, new IntPtr((int)Keys.Up), IntPtr.Zero);
                 }
                 if (stage == 2) {
                     if (Location != initial) throw new Exception("Up did not restore the real window position");
@@ -457,7 +517,7 @@ sealed class RedSheet : Form
                     }
                     beforeFilterForTest = delegate { if (!filterGate.WaitOne(5000)) throw new Exception("Input responsiveness test timed out"); };
                     CaptureFiltered();
-                    PostMessage(Handle, 0x100, new IntPtr((int)Keys.Down), IntPtr.Zero);
+                    PostMessage(Handle, 0x8001, new IntPtr((int)Keys.Down), IntPtr.Zero);
                 }
                 if (stage == 5) {
                     if (!captureInProgress || Top != initial.Y + 10) throw new Exception("Input blocked by background filter");
@@ -469,7 +529,7 @@ sealed class RedSheet : Form
                     }
                     beforeFilterForTest = null;
                     filterGate.Set();
-                    PostMessage(Handle, 0x100, new IntPtr((int)Keys.Up), IntPtr.Zero);
+                    PostMessage(Handle, 0x8001, new IntPtr((int)Keys.Up), IntPtr.Zero);
                 }
                 if (stage == 6) {
                     refresh.Stop();
@@ -499,7 +559,36 @@ sealed class RedSheet : Form
                             if (result.GetPixel(0,0).ToArgb() != result.GetPixel(1,0).ToArgb() || result.GetPixel(0,0).ToArgb() != sheetTint.ToArgb() || result.GetPixel(2,0).ToArgb() != Color.Black.ToArgb()) throw new Exception("Hidden red text differs from sheet background");
                         }
                     }
-                    File.WriteAllText("self-test-result.txt", "PASS: keyboard movement and color conversion; LIVE expanded capture; cached margin renders newly exposed marker while worker blocked; cache alignment, reuse, expiry and boundary refill; LIVE red sheet hides red while preserving black; hidden red and white background map to identical sheet color.\r\n");
+                    if (RecordingBuild) {
+                        PostMessage(Handle, 0x8001, new IntPtr((int)(Keys.Control | Keys.Shift | Keys.R)), IntPtr.Zero);
+                    }
+                }
+                if (stage == 9 && RecordingBuild) {
+                    if (recordingPending || captureInProgress) return;
+                    uint affinity;
+                    if (!recordingMode || recordingSource.Size != SystemInformation.VirtualScreen.Size || !GetWindowDisplayAffinity(Handle, out affinity) || affinity != 0) throw new Exception("Recording shortcut did not enable visible capture mode");
+                    using (var pixel = new Bitmap(1,1)) {
+                        using (var graphics = Graphics.FromImage(pixel)) graphics.CopyFromScreen(PointToScreen(new Point(100,100)), Point.Empty, new Size(1,1));
+                        if (pixel.GetPixel(0,0).ToArgb() != sheetTint.ToArgb()) throw new Exception("Sheet is not visible in screen capture: " + pixel.GetPixel(0,0));
+                    }
+                    backdrop.BackColor = Color.Blue; backdrop.Refresh();
+                    PostMessage(Handle, 0x8001, new IntPtr((int)Keys.Down), IntPtr.Zero);
+                }
+                if (stage == 10 && RecordingBuild) {
+                    Point offset = new Point(Left - filteredOrigin.X, Top - filteredOrigin.Y);
+                    if (filtered.GetPixel(offset.X+100,offset.Y+100).ToArgb() != sheetTint.ToArgb()) throw new Exception("Recording snapshot changed with underlying content");
+                    PostMessage(Handle, 0x8001, new IntPtr((int)(Keys.Control | Keys.Shift | Keys.R)), IntPtr.Zero);
+                }
+                if (stage == 11 && RecordingBuild) {
+                    if (captureInProgress) return;
+                    uint affinity;
+                    if (recordingMode || recordingSource != null || !GetWindowDisplayAffinity(Handle, out affinity) || affinity != 0x11) throw new Exception("Recording exit did not restore capture exclusion");
+                    Point offset = new Point(Left - filteredOrigin.X, Top - filteredOrigin.Y);
+                    Color current = filtered.GetPixel(offset.X+100,offset.Y+100);
+                    if (current.R > 5 || current.B < 150) throw new Exception("Live background did not resume after recording exit");
+                }
+                if ((!RecordingBuild && stage == 8) || (RecordingBuild && stage == 11)) {
+                    File.WriteAllText("self-test-result.txt", "PASS: queued arrow commands, color conversion, expanded cache, cached margin during blocked worker, red background. " + (RecordingBuild ? "RECORDING: Ctrl+Shift+R enables screen capture visibility; sheet pixels captured; full-screen snapshot stays frozen while moving; exit restores capture exclusion and live content." : "Normal build verified.") + "\r\n");
                     filterGate.Dispose();
                     timer.Stop(); backdrop.Close(); Close();
                 }
