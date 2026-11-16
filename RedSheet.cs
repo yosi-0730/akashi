@@ -18,6 +18,12 @@ sealed class RedSheet : Form
     float strength = 1f;
     Bitmap filtered;
     Point filteredOrigin;
+    Color filteredColor;
+    float filteredStrength;
+    int capturedAt;
+    bool redSheetVisible = true;
+    Color sheetTint = Color.FromArgb(255, 153, 153);
+    Color filteredTint;
     bool captureInProgress, closing;
     Action beforeFilterForTest;
     int lastMove;
@@ -49,7 +55,16 @@ sealed class RedSheet : Form
         var autoItem = new ToolStripMenuItem("文字を自動で隠す（F）");
         autoItem.Click += delegate { SetFilter(!autoFilter); };
         menu.Items.Add(autoItem);
-        menu.Opening += delegate { autoItem.Checked = autoFilter; };
+        var redItem = new ToolStripMenuItem("赤いシートを表示（R）");
+        redItem.Click += delegate { ToggleRedSheet(); };
+        menu.Items.Add(redItem);
+        menu.Items.Add("シートの背景色を選ぶ", null, delegate {
+            picking = true;
+            using (var dialog = new ColorDialog { Color = sheetTint, FullOpen = true })
+                if (dialog.ShowDialog(this) == DialogResult.OK) { sheetTint = dialog.Color; redSheetVisible = true; }
+            picking = false; CaptureFiltered(); Invalidate();
+        });
+        menu.Opening += delegate { autoItem.Checked = autoFilter; redItem.Checked = redSheetVisible; };
         var opacityMenu = new ToolStripMenuItem("不透明度");
         foreach (int percent in new int[] { 20, 35, 50, 55, 65, 80, 100 })
         {
@@ -102,6 +117,14 @@ sealed class RedSheet : Form
         lastMove = Environment.TickCount;
         refresh.Interval = 33;
         Invalidate();
+    }
+
+    Color CurrentTint { get { return redSheetVisible ? sheetTint : Color.White; } }
+
+    void ToggleRedSheet()
+    {
+        redSheetVisible = !redSheetVisible;
+        CaptureFiltered(); Invalidate();
     }
 
     void PickColor()
@@ -167,7 +190,12 @@ sealed class RedSheet : Form
         delay.Start();
     }
 
-    static unsafe Bitmap Filter(Bitmap source, Color selected, float amount)
+    static Bitmap Filter(Bitmap source, Color selected, float amount)
+    {
+        return Filter(source, selected, amount, Color.White);
+    }
+
+    static unsafe Bitmap Filter(Bitmap source, Color selected, float amount, Color tint)
     {
         int selectedMin = Math.Min(selected.R, Math.Min(selected.G, selected.B));
         float selectedChroma = Math.Max(1, Math.Max(selected.R, Math.Max(selected.G, selected.B)) - selectedMin);
@@ -186,12 +214,14 @@ sealed class RedSheet : Form
                     int min = Math.Min(red, Math.Min(green, blue));
                     int chroma = Math.Max(red, Math.Max(green, blue)) - min;
                     // Compare hue independently of brightness. Preserve neutral text exactly.
-                    if (chroma < 3) continue;
-                    float distance = Math.Max(Math.Abs((red-min)/(float)chroma-targetR), Math.Max(Math.Abs((green-min)/(float)chroma-targetG), Math.Abs((blue-min)/(float)chroma-targetB)));
-                    float weight = amount * Math.Max(0f, Math.Min(1f, (0.45f-distance)/0.25f));
-                    row[x] = (byte)Math.Round(blue + (255-blue)*weight);
-                    row[x+1] = (byte)Math.Round(green + (255-green)*weight);
-                    row[x+2] = (byte)Math.Round(red + (255-red)*weight);
+                    float weight = 0;
+                    if (chroma >= 3) {
+                        float distance = Math.Max(Math.Abs((red-min)/(float)chroma-targetR), Math.Max(Math.Abs((green-min)/(float)chroma-targetG), Math.Abs((blue-min)/(float)chroma-targetB)));
+                        weight = amount * Math.Max(0f, Math.Min(1f, (0.45f-distance)/0.25f));
+                    }
+                    row[x] = (byte)Math.Round((blue + (255-blue)*weight) * tint.B / 255f);
+                    row[x+1] = (byte)Math.Round((green + (255-green)*weight) * tint.G / 255f);
+                    row[x+2] = (byte)Math.Round((red + (255-red)*weight) * tint.R / 255f);
                 }
             }
         } finally {
@@ -205,18 +235,33 @@ sealed class RedSheet : Form
         if (!autoFilter || picking || closing || captureInProgress || !Visible || ClientSize.Width <= 0 || ClientSize.Height <= 0) return;
         Bitmap capture = null;
         try {
-            Point origin = PointToScreen(Point.Empty);
-            capture = new Bitmap(ClientSize.Width, ClientSize.Height);
-            using (var graphics = Graphics.FromImage(capture)) graphics.CopyFromScreen(origin, Point.Empty, capture.Size);
+            var view = new Rectangle(PointToScreen(Point.Empty), ClientSize);
+            int now = Environment.TickCount;
+            if (unchecked(now - lastMove) < 150 && CanReuseCache(view, now)) return;
+            var area = view;
+            area.Inflate(256, 384);
+            area = Rectangle.Intersect(area, SystemInformation.VirtualScreen);
+            if (area.IsEmpty) return;
+            Point origin = area.Location;
+            capture = new Bitmap(area.Width, area.Height);
+            using (var graphics = Graphics.FromImage(capture)) {
+                graphics.Clear(Color.White);
+                foreach (Screen screen in Screen.AllScreens) {
+                    Rectangle part = Rectangle.Intersect(area, screen.Bounds);
+                    if (part.Width > 0 && part.Height > 0)
+                        graphics.CopyFromScreen(part.Location, new Point(part.X - origin.X, part.Y - origin.Y), part.Size);
+                }
+            }
             Color selected = textColor;
             float amount = strength;
+            Color tint = CurrentTint;
             Bitmap ownedCapture = capture;
             Action beforeFilter = beforeFilterForTest;
             captureInProgress = true;
             Task.Factory.StartNew(delegate {
                 using (ownedCapture) {
                     if (beforeFilter != null) beforeFilter();
-                    return Filter(ownedCapture, selected, amount);
+                    return Filter(ownedCapture, selected, amount, tint);
                 }
             }).ContinueWith(task => {
                 captureInProgress = false;
@@ -226,15 +271,26 @@ sealed class RedSheet : Form
                     return;
                 }
                 Bitmap next = task.Result;
-                if (closing || !autoFilter || picking || textColor != selected || strength != amount) { next.Dispose(); return; }
+                if (closing || !autoFilter || picking || textColor != selected || strength != amount || CurrentTint != tint) { next.Dispose(); return; }
                 Bitmap previous = filtered;
                 filtered = next; filteredOrigin = origin;
+                filteredColor = selected; filteredStrength = amount; capturedAt = now;
+                filteredTint = tint;
                 if (previous != null) previous.Dispose();
                 Invalidate();
             }, TaskScheduler.FromCurrentSynchronizationContext());
             capture = null;
         } catch (System.ComponentModel.Win32Exception) { SetFilter(false); }
         finally { if (capture != null) capture.Dispose(); }
+    }
+
+    bool CanReuseCache(Rectangle view, int now)
+    {
+        if (filtered == null || filteredColor != textColor || filteredStrength != strength || filteredTint != CurrentTint || unchecked(now - capturedAt) >= 500) return false;
+        // Refresh before reaching the edge, keeping room for the next movement.
+        view.Inflate(64, 64);
+        view = Rectangle.Intersect(view, SystemInformation.VirtualScreen);
+        return new Rectangle(filteredOrigin, filtered.Size).Contains(view);
     }
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
@@ -258,6 +314,7 @@ sealed class RedSheet : Form
             }
         }
         if (modifiers == Keys.None) {
+            if (key == Keys.R) { ToggleRedSheet(); return true; }
             if (key == Keys.F) { SetFilter(!autoFilter); return true; }
             if (key == Keys.C) { PickColor(); return true; }
             if (autoFilter && (key == Keys.Add || key == Keys.Oemplus || key == Keys.Subtract || key == Keys.OemMinus)) {
@@ -295,7 +352,7 @@ sealed class RedSheet : Form
 
     protected override void OnPaintBackground(PaintEventArgs e)
     {
-        if (autoFilter) e.Graphics.Clear(Color.White);
+        if (autoFilter) e.Graphics.Clear(CurrentTint);
         else base.OnPaintBackground(e);
     }
 
@@ -306,6 +363,8 @@ sealed class RedSheet : Form
             XElement s = XElement.Load(settingsPath);
             BackColor = Color.FromArgb((int)s.Attribute("color"));
             if (s.Attribute("textColor") != null) textColor = Color.FromArgb((int)s.Attribute("textColor"));
+            if (s.Attribute("redSheetVisible") != null) redSheetVisible = (bool)s.Attribute("redSheetVisible");
+            if (s.Attribute("sheetTint") != null) sheetTint = Color.FromArgb((int)s.Attribute("sheetTint"));
             if (s.Attribute("autoFilter") != null) savedFilter = (bool)s.Attribute("autoFilter");
             if (s.Attribute("strength") != null) strength = Math.Max(0f, Math.Min(1f, (float)s.Attribute("strength")));
             Opacity = Math.Max(0.1, Math.Min(1, (double)s.Attribute("opacity")));
@@ -321,7 +380,7 @@ sealed class RedSheet : Form
     {
         try {
             Directory.CreateDirectory(Path.GetDirectoryName(settingsPath));
-            new XElement("sheet", new XAttribute("color", BackColor.ToArgb()), new XAttribute("textColor", textColor.ToArgb()), new XAttribute("autoFilter", autoFilter), new XAttribute("strength", strength), new XAttribute("opacity", Opacity), new XAttribute("x", Left), new XAttribute("y", Top), new XAttribute("width", Width), new XAttribute("height", Height)).Save(settingsPath);
+            new XElement("sheet", new XAttribute("color", BackColor.ToArgb()), new XAttribute("textColor", textColor.ToArgb()), new XAttribute("redSheetVisible", redSheetVisible), new XAttribute("sheetTint", sheetTint.ToArgb()), new XAttribute("autoFilter", autoFilter), new XAttribute("strength", strength), new XAttribute("opacity", Opacity), new XAttribute("x", Left), new XAttribute("y", Top), new XAttribute("width", Width), new XAttribute("height", Height)).Save(settingsPath);
         } catch (Exception e) {
             if (!(e is IOException || e is UnauthorizedAccessException)) throw;
             MessageBox.Show("設定を保存できませんでした。\n" + e.Message, "赤シート");
@@ -330,9 +389,11 @@ sealed class RedSheet : Form
 
     public void RunSelfTest()
     {
+        redSheetVisible = false;
         Point initial = Location;
         int stage = 0;
         Form backdrop = null;
+        int markerY = Height + 4;
         var filterGate = new System.Threading.ManualResetEvent(false);
         var timer = new Timer { Interval = 250 };
         timer.Tick += delegate {
@@ -377,7 +438,11 @@ sealed class RedSheet : Form
                     }
                     Location = initial;
                     backdrop = new Form { FormBorderStyle = FormBorderStyle.None, StartPosition = FormStartPosition.Manual, Bounds = Bounds, BackColor = Color.Red, ShowInTaskbar = false, TopMost = true };
-                    backdrop.Paint += delegate(object sender, PaintEventArgs e2) { e2.Graphics.FillRectangle(Brushes.Black, 20, 20, 50, 50); };
+                    backdrop.Height += 160;
+                    backdrop.Paint += delegate(object sender, PaintEventArgs e2) {
+                        e2.Graphics.FillRectangle(Brushes.Black, 20, 20, 50, 50);
+                        e2.Graphics.FillRectangle(Brushes.Blue, 100, markerY, 40, 30);
+                    };
                     backdrop.Show(); BringToFront(); Activate();
                     SetFilter(true);
                     if (!autoFilter) throw new Exception("Capture exclusion unavailable");
@@ -385,9 +450,10 @@ sealed class RedSheet : Form
                 if (stage == 4) {
                     refresh.Stop();
                     if (captureInProgress) return;
-                    if (filtered == null || filtered.GetPixel(100,100).G < 250 || filtered.GetPixel(40,40).R > 5) {
+                    Point offset = new Point(initial.X - filteredOrigin.X, initial.Y - filteredOrigin.Y);
+                    if (filtered == null || filtered.GetPixel(offset.X+100,offset.Y+100).G < 250 || filtered.GetPixel(offset.X+40,offset.Y+40).R > 5) {
                         if (filtered != null) filtered.Save("self-test-capture.png");
-                        throw new Exception("Live capture failed: red=" + (filtered == null ? "null" : filtered.GetPixel(100,100).ToString()) + " black=" + (filtered == null ? "null" : filtered.GetPixel(40,40).ToString()));
+                        throw new Exception("Live capture failed");
                     }
                     beforeFilterForTest = delegate { if (!filterGate.WaitOne(5000)) throw new Exception("Input responsiveness test timed out"); };
                     CaptureFiltered();
@@ -395,6 +461,12 @@ sealed class RedSheet : Form
                 }
                 if (stage == 5) {
                     if (!captureInProgress || Top != initial.Y + 10) throw new Exception("Input blocked by background filter");
+                    using (var painted = new Bitmap(Width, Height)) {
+                        DrawToBitmap(painted, new Rectangle(Point.Empty, Size));
+                        Color marker = painted.GetPixel(110, markerY - 10 + 1);
+                        if (marker.B < 250 || marker.R > 5) throw new Exception("Cached margin did not display newly exposed blue marker while worker blocked");
+                        if (painted.GetPixel(40,30).R > 5) throw new Exception("Cache was not aligned to document after movement");
+                    }
                     beforeFilterForTest = null;
                     filterGate.Set();
                     PostMessage(Handle, 0x100, new IntPtr((int)Keys.Up), IntPtr.Zero);
@@ -402,14 +474,32 @@ sealed class RedSheet : Form
                 if (stage == 6) {
                     refresh.Stop();
                     if (captureInProgress) return;
-                    if (Location != initial) throw new Exception("Move back after background filtering failed");
+                    if (Location != initial) throw new Exception("Move back after background filtering failed: expected=" + initial + " actual=" + Location);
                     CaptureFiltered();
                 }
                 if (stage == 7) {
                     refresh.Stop();
                     if (captureInProgress) return;
-                    if (filteredOrigin != initial || filtered.GetPixel(100,100).G < 250 || filtered.GetPixel(40,40).R > 5) throw new Exception("Frame after movement is stale or incorrect");
-                    File.WriteAllText("self-test-result.txt", "PASS: queued Up/Down moved actual window; Shift=1px; Ctrl=50px; opacity and color conversion; LIVE capture hides red and preserves black; keyboard movement while filter worker is blocked; correct frame after movement.\r\n");
+                    Point offset = new Point(initial.X - filteredOrigin.X, initial.Y - filteredOrigin.Y);
+                    if (filtered.GetPixel(offset.X+100,offset.Y+100).G < 250 || filtered.GetPixel(offset.X+40,offset.Y+40).R > 5) throw new Exception("Frame after movement is stale or incorrect");
+                    if (!CanReuseCache(new Rectangle(initial.X, initial.Y+10, Width, Height), capturedAt+100)) throw new Exception("Nearby cache was not reused");
+                    if (CanReuseCache(new Rectangle(initial, Size), capturedAt+501)) throw new Exception("Expired cache was reused");
+                    if (CanReuseCache(new Rectangle(filteredOrigin.X+filtered.Width-10, initial.Y, Width, Height), capturedAt+100)) throw new Exception("Cache boundary did not request refill");
+                    redSheetVisible = true;
+                    CaptureFiltered();
+                }
+                if (stage == 8) {
+                    refresh.Stop();
+                    if (captureInProgress) return;
+                    Point offset = new Point(initial.X - filteredOrigin.X, initial.Y - filteredOrigin.Y);
+                    if (filtered.GetPixel(offset.X+100,offset.Y+100).ToArgb() != sheetTint.ToArgb() || filtered.GetPixel(offset.X+40,offset.Y+40).ToArgb() != Color.Black.ToArgb()) throw new Exception("Red sheet did not hide red text while keeping black");
+                    using (var sample = new Bitmap(3,1)) {
+                        sample.SetPixel(0,0,Color.White); sample.SetPixel(1,0,Color.FromArgb(180,30,30)); sample.SetPixel(2,0,Color.Black);
+                        using (var result = Filter(sample, Color.Red, 1f, sheetTint)) {
+                            if (result.GetPixel(0,0).ToArgb() != result.GetPixel(1,0).ToArgb() || result.GetPixel(0,0).ToArgb() != sheetTint.ToArgb() || result.GetPixel(2,0).ToArgb() != Color.Black.ToArgb()) throw new Exception("Hidden red text differs from sheet background");
+                        }
+                    }
+                    File.WriteAllText("self-test-result.txt", "PASS: keyboard movement and color conversion; LIVE expanded capture; cached margin renders newly exposed marker while worker blocked; cache alignment, reuse, expiry and boundary refill; LIVE red sheet hides red while preserving black; hidden red and white background map to identical sheet color.\r\n");
                     filterGate.Dispose();
                     timer.Stop(); backdrop.Close(); Close();
                 }
